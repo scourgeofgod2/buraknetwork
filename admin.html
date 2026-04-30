@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Panel | burak.network</title>
+  <link rel="icon" type="image/webp" href="burak.webp" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <nav class="admin-nav">
+    <div class="admin-nav-inner">
+      <a href="/" class="admin-logo">
+        <span class="bracket">&lt;</span>burak.network<span class="bracket">/&gt;</span>
+        <span class="admin-tag">admin</span>
+      </a>
+      <div class="nav-stats" id="navStats">
+        <span class="stat-pill unread" id="unreadCount">— okunmamış</span>
+        <span class="stat-pill total" id="totalCount">— toplam</span>
+        <span class="stat-pill today" id="todayCount">— bugün</span>
+      </div>
+    </div>
+  </nav>
+
+  <main class="admin-main">
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <button class="filter-btn active" data-filter="all">Tümü</button>
+        <button class="filter-btn" data-filter="unread">Okunmamış</button>
+      </div>
+      <div class="toolbar-right">
+        <span class="msg-count" id="msgCount"></span>
+      </div>
+    </div>
+
+    <div class="messages-list" id="messagesList">
+      <div class="loading">Mesajlar yükleniyor...</div>
+    </div>
+
+    <div class="pagination" id="pagination"></div>
+  </main>
+
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modal">
+      <div class="modal-header">
+        <div class="modal-meta" id="modalMeta"></div>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <div class="modal-subject" id="modalSubject"></div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-footer">
+        <a class="btn-reply" id="modalReply" href="#">✉ Yanıtla</a>
+        <button class="btn-delete" id="modalDelete">🗑 Sil</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentPage = 1;
+    let currentFilter = 'all';
+    let currentId = null;
+
+    async function fetchJSON(url, opts = {}) {
+      const res = await fetch(url, opts);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    async function loadStats() {
+      const s = await fetchJSON('/api/admin/stats');
+      document.getElementById('unreadCount').textContent = s.unread + ' okunmamış';
+      document.getElementById('totalCount').textContent = s.total + ' toplam';
+      document.getElementById('todayCount').textContent = s.today + ' bugün';
+    }
+
+    async function loadMessages(page = 1) {
+      const unread = currentFilter === 'unread' ? '&unread=1' : '';
+      const data = await fetchJSON(`/api/admin/messages?page=${page}${unread}`);
+      currentPage = page;
+
+      document.getElementById('msgCount').textContent = data.total + ' mesaj';
+
+      const list = document.getElementById('messagesList');
+      if (data.messages.length === 0) {
+        list.innerHTML = '<div class="empty">Mesaj bulunamadı.</div>';
+        document.getElementById('pagination').innerHTML = '';
+        return;
+      }
+
+      list.innerHTML = data.messages.map(m => `
+        <div class="msg-card ${m.read ? '' : 'unread'}" data-id="${m.id}" onclick="openMessage(${m.id})">
+          <div class="msg-left">
+            <div class="msg-avatar">${m.name.charAt(0).toUpperCase()}</div>
+            ${!m.read ? '<span class="unread-dot"></span>' : ''}
+          </div>
+          <div class="msg-content">
+            <div class="msg-top">
+              <span class="msg-name">${esc(m.name)}</span>
+              <span class="msg-date">${formatDate(m.created_at)}</span>
+            </div>
+            <div class="msg-subject">${esc(m.subject)}</div>
+            <div class="msg-preview">${esc(m.email)} · ${esc(m.message).substring(0, 80)}${m.message.length > 80 ? '…' : ''}</div>
+          </div>
+        </div>
+      `).join('');
+
+      const pag = document.getElementById('pagination');
+      if (data.pages <= 1) { pag.innerHTML = ''; return; }
+      let btns = '';
+      for (let i = 1; i <= data.pages; i++) {
+        btns += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="loadMessages(${i})">${i}</button>`;
+      }
+      pag.innerHTML = btns;
+    }
+
+    const msgMap = {};
+
+    async function openMessage(id) {
+      const data = await fetchJSON(`/api/admin/messages?page=1`);
+      const allData = await fetchJSON(`/api/admin/messages?page=1&limit=999`);
+      const msgs = (await fetchJSON('/api/admin/messages?page=' + currentPage + (currentFilter === 'unread' ? '&unread=1' : ''))).messages;
+      const m = msgs.find(x => x.id === id);
+      if (!m) return;
+
+      currentId = id;
+      document.getElementById('modalMeta').innerHTML = `
+        <strong>${esc(m.name)}</strong>
+        <a href="mailto:${esc(m.email)}" class="modal-email">${esc(m.email)}</a>
+        <span class="modal-date">${formatDate(m.created_at)}</span>
+      `;
+      document.getElementById('modalSubject').textContent = m.subject;
+      document.getElementById('modalBody').textContent = m.message;
+      document.getElementById('modalReply').href = `mailto:${m.email}?subject=Re: ${encodeURIComponent(m.subject)}`;
+      document.getElementById('modalOverlay').classList.add('open');
+
+      if (!m.read) {
+        await fetchJSON(`/api/admin/messages/${id}/read`, { method: 'PATCH' });
+        loadStats();
+        loadMessages(currentPage);
+      }
+    }
+
+    async function deleteMessage() {
+      if (!currentId) return;
+      if (!confirm('Bu mesajı silmek istediğinden emin misin?')) return;
+      await fetchJSON(`/api/admin/messages/${currentId}`, { method: 'DELETE' });
+      document.getElementById('modalOverlay').classList.remove('open');
+      currentId = null;
+      loadStats();
+      loadMessages(currentPage);
+    }
+
+    function formatDate(dt) {
+      const d = new Date(dt + 'Z');
+      return d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    document.getElementById('modalClose').onclick = () => document.getElementById('modalOverlay').classList.remove('open');
+    document.getElementById('modalDelete').onclick = deleteMessage;
+    document.getElementById('modalOverlay').onclick = e => { if (e.target === e.currentTarget) e.currentTarget.classList.remove('open'); };
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.dataset.filter;
+        loadMessages(1);
+      };
+    });
+
+    loadStats();
+    loadMessages(1);
+    setInterval(() => { loadStats(); loadMessages(currentPage); }, 30000);
+  </script>
+</body>
+</html>
