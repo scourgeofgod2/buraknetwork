@@ -137,10 +137,72 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
   });
 });
 
-// ─── TERMINAL TYPEWRITER ───
-const terminalLines = document.querySelectorAll('.terminal-line');
-terminalLines.forEach((line, i) => {
-  line.style.opacity = '0';
-  line.style.transition = 'opacity 0.3s';
-  setTimeout(() => { line.style.opacity = '1'; }, 300 + i * 180);
-});
+// ─── TERMINAL TYPEWRITER FUNCTION ───
+function runTypewriter(container, delayStart) {
+  const lines = container.querySelectorAll('.terminal-line');
+  if (!lines.length) return;
+
+  const lineData = Array.from(lines).map(el => {
+    const html = el.innerHTML;
+    el.innerHTML = '';
+    el.style.opacity = '1';
+    el.style.minHeight = '1.4em';
+    return { el, html };
+  });
+
+  function typeHTML(el, html, done) {
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    const nodes = Array.from(temp.childNodes);
+    let nodeIdx = 0;
+    let charIdx = 0;
+    function next() {
+      if (nodeIdx >= nodes.length) { if (done) done(); return; }
+      const node = nodes[nodeIdx];
+      if (node.nodeType === 3) {
+        const text = node.textContent;
+        if (charIdx < text.length) {
+          if (!el._textNode || el._textNode._nodeIdx !== nodeIdx) {
+            el._textNode = document.createTextNode('');
+            el._textNode._nodeIdx = nodeIdx;
+            el.appendChild(el._textNode);
+          }
+          el._textNode.textContent += text[charIdx];
+          charIdx++;
+          setTimeout(next, 22);
+        } else { nodeIdx++; charIdx = 0; setTimeout(next, 8); }
+      } else {
+        el.appendChild(node.cloneNode(true));
+        nodeIdx++; charIdx = 0; setTimeout(next, 8);
+      }
+    }
+    next();
+  }
+
+  let idx = 0;
+  function nextLine() {
+    if (idx >= lineData.length) return;
+    const { el, html } = lineData[idx++];
+    if (el.classList.contains('t-cursor')) { el.innerHTML = html; return; }
+    typeHTML(el, html, () => setTimeout(nextLine, 100));
+  }
+  setTimeout(nextLine, delayStart);
+}
+
+// ─── HERO TERMINAL ───
+const heroTerminal = document.querySelector('.terminal-card');
+if (heroTerminal) runTypewriter(heroTerminal, 1200);
+
+// ─── ABOUT TERMINAL (scroll'a girince başlar) ───
+const aboutTerminal = document.getElementById('aboutTerminal');
+if (aboutTerminal) {
+  let aboutStarted = false;
+  const aboutObs = new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting && !aboutStarted) {
+      aboutStarted = true;
+      runTypewriter(aboutTerminal, 200);
+      aboutObs.disconnect();
+    }
+  }, { threshold: 0.3 });
+  aboutObs.observe(aboutTerminal);
+}

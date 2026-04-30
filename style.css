@@ -498,30 +498,26 @@ section:not(#hero) {
   font-size: 0.975rem;
 }
 .about-text strong { color: var(--text); font-weight: 600; }
-.about-langs {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  margin-top: 1.5rem;
+.about-terminal {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg), 0 0 40px rgba(99,102,241,0.08);
 }
-.lang-item {
+.about-terminal-header {
+  background: var(--surface);
+  padding: 0.75rem 1rem;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 1rem;
-  background: var(--surface);
-  border: 1px solid var(--border-2);
-  border-radius: 10px;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border-2);
 }
-.lang-flag { font-size: 1.1rem; }
-.lang-name { font-size: 0.875rem; font-weight: 500; flex: 1; }
-.lang-level {
-  font-size: 0.75rem;
-  color: var(--accent);
-  background: rgba(99,102,241,0.12);
-  padding: 0.2rem 0.6rem;
-  border-radius: 6px;
+.about-terminal-body {
+  padding: 1.25rem;
   font-family: var(--mono);
+  font-size: 0.83rem;
+  line-height: 1.9;
 }
 .about-cards {
   display: flex;
