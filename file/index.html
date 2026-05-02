@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dosya Yöneticisi | burak.network</title>
+  <link rel="icon" type="image/webp" href="/burak.webp" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/file/assets/file.css" />
+</head>
+<body class="app-page">
+
+<nav class="app-nav">
+  <div class="app-nav-inner">
+    <a href="/" class="app-logo">
+      <span class="bracket">&lt;</span>burak.network<span class="bracket">/&gt;</span>
+      <span class="app-tag">file</span>
+    </a>
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-tab="files">📁 Dosyalar</button>
+      <button class="nav-tab" data-tab="notes">📝 Notlar</button>
+    </div>
+    <button class="btn-logout" id="logoutBtn">Çıkış</button>
+  </div>
+</nav>
+
+<main class="app-main">
+
+  <!-- FILES TAB -->
+  <div class="tab-content active" id="tab-files">
+    <div class="section-head">
+      <div>
+        <h2>Dosya Yöneticisi</h2>
+        <p class="section-sub" id="fileStats">Yükleniyor...</p>
+      </div>
+    </div>
+
+    <div class="drop-zone" id="dropZone">
+      <div class="drop-inner">
+        <div class="drop-icon">📂</div>
+        <p class="drop-title">Dosyaları buraya sürükle &amp; bırak</p>
+        <p class="drop-sub">veya</p>
+        <label class="btn-select">
+          Dosya Seç
+          <input type="file" id="fileInput" multiple hidden />
+        </label>
+        <p class="drop-limit">Maks. 100MB / dosya · En fazla 20 dosya</p>
+      </div>
+    </div>
+
+    <div class="upload-queue" id="uploadQueue"></div>
+
+    <div class="files-toolbar">
+      <input type="search" class="search-input" id="fileSearch" placeholder="Dosya ara..." />
+      <span class="files-count" id="filesCount"></span>
+    </div>
+
+    <div class="files-grid" id="filesGrid">
+      <div class="empty-state">Henüz dosya yok.</div>
+    </div>
+  </div>
+
+  <!-- NOTES TAB -->
+  <div class="tab-content" id="tab-notes">
+    <div class="section-head">
+      <div>
+        <h2>Not Defteri</h2>
+        <p class="section-sub" id="notesStats">Yükleniyor...</p>
+      </div>
+      <button class="btn-new-note" id="btnNewNote">+ Yeni Not</button>
+    </div>
+
+    <div class="notes-search-bar">
+      <input type="search" class="search-input" id="noteSearch" placeholder="Notlarda ara..." />
+    </div>
+
+    <div class="notes-grid" id="notesGrid">
+      <div class="empty-state">Henüz not yok.</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- NOTE MODAL -->
+<div class="modal-overlay" id="noteModal">
+  <div class="note-modal">
+    <div class="note-modal-header">
+      <input type="text" class="note-title-input" id="noteTitleInput" placeholder="Not başlığı..." />
+      <div class="note-modal-actions">
+        <select class="color-picker" id="noteColor">
+          <option value="default">⚪ Varsayılan</option>
+          <option value="blue">🔵 Mavi</option>
+          <option value="green">🟢 Yeşil</option>
+          <option value="yellow">🟡 Sarı</option>
+          <option value="red">🔴 Kırmızı</option>
+          <option value="purple">🟣 Mor</option>
+        </select>
+        <button class="btn-pin" id="notePinBtn" title="Sabitle">📌</button>
+        <button class="btn-icon-danger" id="noteDeleteBtn" title="Sil">🗑</button>
+        <button class="btn-icon-close" id="noteCloseBtn">✕</button>
+      </div>
+    </div>
+    <textarea class="note-content-input" id="noteContentInput" placeholder="Notunu buraya yaz..."></textarea>
+    <div class="note-modal-footer">
+      <span class="note-char-count" id="noteCharCount">0 karakter</span>
+      <button class="btn-save-note" id="noteSaveBtn">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN = localStorage.getItem('file_token');
+if (!TOKEN) window.location.href = '/file';
+
+async function api(method, url, body, isFormData) {
+  const opts = {
+    method,
+    headers: { 'x-session-token': TOKEN }
+  };
+  if (body && !isFormData) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  } else if (isFormData) {
+    opts.body = body;
+  }
+  const res = await fetch(url, opts);
+  if (res.status === 401) { localStorage.removeItem('file_token'); window.location.href = '/file'; return; }
+  return res;
+}
+
+document.getElementById('logoutBtn').onclick = () => {
+  localStorage.removeItem('file_token');
+  window.location.href = '/file';
+};
+
+// ─── TABS ───
+document.querySelectorAll('.nav-tab').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  };
+});
+
+// ─── FILES ───
+let allFiles = [];
+
+async function loadFiles() {
+  const res = await api('GET', '/api/file/list');
+  const data = await res.json();
+  allFiles = data.files || [];
+  renderFiles(allFiles);
+  document.getElementById('fileStats').textContent = allFiles.length + ' dosya · ' + formatSize(allFiles.reduce((s, f) => s + f.size, 0));
+}
+
+function renderFiles(files) {
+  const grid = document.getElementById('filesGrid');
+  document.getElementById('filesCount').textContent = files.length + ' dosya';
+  if (!files.length) { grid.innerHTML = '<div class="empty-state">Dosya bulunamadı.</div>'; return; }
+  grid.innerHTML = files.map(f => `
+    <div class="file-card" data-name="${esc(f.filename)}">
+      <div class="file-icon">${fileIcon(f.original)}</div>
+      <div class="file-info">
+        <div class="file-name" title="${esc(f.original)}">${esc(f.original)}</div>
+        <div class="file-meta">${formatSize(f.size)} · ${formatDate(f.mtime)}</div>
+      </div>
+      <div class="file-actions">
+        <a class="btn-dl" href="/api/file/download/${encodeURIComponent(f.filename)}?token=${TOKEN}" download title="İndir">⬇</a>
+        <button class="btn-rm" data-fn="${esc(f.filename)}" title="Sil">🗑</button>
+      </div>
+    </div>
+  `).join('');
+  grid.querySelectorAll('.btn-rm').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Dosyayı silmek istediğinden emin misin?')) return;
+      await api('DELETE', '/api/file/delete/' + encodeURIComponent(btn.dataset.fn));
+      loadFiles();
+    };
+  });
+}
+
+document.getElementById('fileSearch').oninput = function() {
+  const q = this.value.toLowerCase();
+  renderFiles(allFiles.filter(f => f.original.toLowerCase().includes(q)));
+};
+
+// ─── DRAG & DROP ───
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  uploadFiles(Array.from(e.dataTransfer.files));
+});
+document.getElementById('fileInput').onchange = function() {
+  uploadFiles(Array.from(this.files));
+  this.value = '';
+};
+
+function uploadFiles(files) {
+  if (!files.length) return;
+  files.forEach(file => {
+    const id = 'uq_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    const queue = document.getElementById('uploadQueue');
+    const item = document.createElement('div');
+    item.className = 'upload-item';
+    item.id = id;
+    item.innerHTML = `
+      <div class="ui-name">${esc(file.name)}</div>
+      <div class="ui-bar"><div class="ui-progress" style="width:0%"></div></div>
+      <div class="ui-status">Yükleniyor...</div>
+    `;
+    queue.appendChild(item);
+
+    const fd = new FormData();
+    fd.append('files', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/file/upload');
+    xhr.setRequestHeader('x-session-token', TOKEN);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        const pct = Math.round(e.loaded / e.total * 100);
+        item.querySelector('.ui-progress').style.width = pct + '%';
+        item.querySelector('.ui-status').textContent = pct + '%';
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        item.querySelector('.ui-status').textContent = 'Tamamlandı ✓';
+        item.querySelector('.ui-progress').style.background = 'var(--green)';
+        setTimeout(() => { item.remove(); loadFiles(); }, 1500);
+      } else {
+        item.querySelector('.ui-status').textContent = 'Hata!';
+        item.querySelector('.ui-progress').style.background = 'var(--red)';
+      }
+    };
+    xhr.send(fd);
+  });
+}
+
+// ─── NOTES ───
+let allNotes = [];
+let editingNoteId = null;
+let isPinned = false;
+
+async function loadNotes() {
+  const res = await api('GET', '/api/file/notes');
+  const data = await res.json();
+  allNotes = data.notes || [];
+  renderNotes(allNotes);
+  document.getElementById('notesStats').textContent = allNotes.length + ' not · ' + allNotes.filter(n => n.pinned).length + ' sabitlenmiş';
+}
+
+function renderNotes(notes) {
+  const grid = document.getElementById('notesGrid');
+  if (!notes.length) { grid.innerHTML = '<div class="empty-state">Not bulunamadı.</div>'; return; }
+  grid.innerHTML = notes.map(n => `
+    <div class="note-card color-${n.color || 'default'}" data-id="${n.id}">
+      <div class="note-card-header">
+        <span class="note-card-title">${esc(n.title)}</span>
+        ${n.pinned ? '<span class="note-pin-badge">📌</span>' : ''}
+      </div>
+      <div class="note-card-preview">${esc(n.content || '').substring(0, 120)}${n.content && n.content.length > 120 ? '…' : ''}</div>
+      <div class="note-card-footer">
+        <span class="note-card-date">${formatDate(n.updated_at)}</span>
+        <div class="note-card-actions">
+          <button class="btn-note-pin" data-id="${n.id}" data-pinned="${n.pinned}" title="${n.pinned ? 'Sabitlemeyi Kaldır' : 'Sabitle'}">${n.pinned ? '📌' : '📍'}</button>
+          <button class="btn-note-edit" data-id="${n.id}" title="Düzenle">✏️</button>
+          <button class="btn-note-del" data-id="${n.id}" title="Sil">🗑</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  grid.querySelectorAll('.btn-note-edit').forEach(btn => {
+    btn.onclick = e => { e.stopPropagation(); openNote(parseInt(btn.dataset.id)); };
+  });
+  grid.querySelectorAll('.note-card').forEach(card => {
+    card.ondblclick = () => openNote(parseInt(card.dataset.id));
+  });
+  grid.querySelectorAll('.btn-note-del').forEach(btn => {
+    btn.onclick = async e => {
+      e.stopPropagation();
+      if (!confirm('Notu silmek istediğinden emin misin?')) return;
+      await api('DELETE', '/api/file/notes/' + btn.dataset.id);
+      loadNotes();
+    };
+  });
+  grid.querySelectorAll('.btn-note-pin').forEach(btn => {
+    btn.onclick = async e => {
+      e.stopPropagation();
+      const pinned = btn.dataset.pinned === '1' ? 0 : 1;
+      await api('PUT', '/api/file/notes/' + btn.dataset.id, { pinned });
+      loadNotes();
+    };
+  });
+}
+
+document.getElementById('noteSearch').oninput = function() {
+  const q = this.value.toLowerCase();
+  renderNotes(allNotes.filter(n => n.title.toLowerCase().includes(q) || (n.content || '').toLowerCase().includes(q)));
+};
+
+function openNote(id) {
+  const note = id ? allNotes.find(n => n.id === id) : null;
+  editingNoteId = id || null;
+  isPinned = note ? !!note.pinned : false;
+  document.getElementById('noteTitleInput').value = note ? note.title : '';
+  document.getElementById('noteContentInput').value = note ? (note.content || '') : '';
+  document.getElementById('noteColor').value = note ? (note.color || 'default') : 'default';
+  document.getElementById('notePinBtn').classList.toggle('pinned', isPinned);
+  document.getElementById('noteDeleteBtn').style.display = id ? 'inline-flex' : 'none';
+  updateCharCount();
+  document.getElementById('noteModal').classList.add('open');
+  document.getElementById('noteTitleInput').focus();
+}
+
+document.getElementById('btnNewNote').onclick = () => openNote(null);
+document.getElementById('noteCloseBtn').onclick = () => document.getElementById('noteModal').classList.remove('open');
+document.getElementById('noteModal').onclick = e => { if (e.target === e.currentTarget) e.currentTarget.classList.remove('open'); };
+
+document.getElementById('notePinBtn').onclick = function() {
+  isPinned = !isPinned;
+  this.classList.toggle('pinned', isPinned);
+};
+
+document.getElementById('noteContentInput').oninput = updateCharCount;
+
+function updateCharCount() {
+  const len = document.getElementById('noteContentInput').value.length;
+  document.getElementById('noteCharCount').textContent = len + ' karakter';
+}
+
+document.getElementById('noteDeleteBtn').onclick = async () => {
+  if (!editingNoteId) return;
+  if (!confirm('Notu silmek istediğinden emin misin?')) return;
+  await api('DELETE', '/api/file/notes/' + editingNoteId);
+  document.getElementById('noteModal').classList.remove('open');
+  loadNotes();
+};
+
+document.getElementById('noteSaveBtn').onclick = async () => {
+  const title = document.getElementById('noteTitleInput').value.trim();
+  const content = document.getElementById('noteContentInput').value;
+  const color = document.getElementById('noteColor').value;
+  if (!title) { document.getElementById('noteTitleInput').focus(); return; }
+  const btn = document.getElementById('noteSaveBtn');
+  btn.textContent = 'Kaydediliyor...';
+  btn.disabled = true;
+  if (editingNoteId) {
+    await api('PUT', '/api/file/notes/' + editingNoteId, { title, content, color, pinned: isPinned ? 1 : 0 });
+  } else {
+    await api('POST', '/api/file/notes', { title, content, color });
+    if (isPinned) {
+      const res2 = await api('GET', '/api/file/notes');
+      const d2 = await res2.json();
+      const newest = d2.notes[d2.notes.length - 1];
+      if (newest) await api('PUT', '/api/file/notes/' + newest.id, { pinned: 1 });
+    }
+  }
+  btn.textContent = 'Kaydet';
+  btn.disabled = false;
+  document.getElementById('noteModal').classList.remove('open');
+  loadNotes();
+};
+
+// ctrl+s to save
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's' && document.getElementById('noteModal').classList.contains('open')) {
+    e.preventDefault();
+    document.getElementById('noteSaveBtn').click();
+  }
+  if (e.key === 'Escape') document.getElementById('noteModal').classList.remove('open');
+});
+
+// ─── HELPERS ───
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+function formatDate(d) {
+  return new Date(d).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fileIcon(name) {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const icons = { pdf:'📄', doc:'📝', docx:'📝', xls:'📊', xlsx:'📊', ppt:'📑', pptx:'📑', zip:'🗜', rar:'🗜', '7z':'🗜', tar:'🗜', gz:'🗜', jpg:'🖼', jpeg:'🖼', png:'🖼', gif:'🖼', webp:'🖼', svg:'🖼', mp4:'🎬', mkv:'🎬', avi:'🎬', mov:'🎬', mp3:'🎵', wav:'🎵', txt:'📃', md:'📃', json:'⚙️', js:'⚙️', py:'⚙️', sh:'⚙️', html:'🌐', css:'🎨' };
+  return icons[ext] || '📁';
+}
+
+loadFiles();
+loadNotes();
+</script>
+</body>
+</html>

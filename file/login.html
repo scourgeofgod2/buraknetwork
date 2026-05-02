@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Giriş | burak.network/file</title>
+  <link rel="icon" type="image/webp" href="/burak.webp" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/file/assets/file.css" />
+</head>
+<body class="login-page">
+  <div class="login-bg">
+    <div class="grid-overlay"></div>
+    <div class="glow g1"></div>
+    <div class="glow g2"></div>
+  </div>
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="bracket">&lt;</span>burak.network/file<span class="bracket">/&gt;</span>
+    </div>
+    <p class="login-sub">Dosya Yöneticisi &amp; Not Defteri</p>
+    <form id="loginForm">
+      <div class="field">
+        <label>Kullanıcı Adı</label>
+        <input type="text" id="username" placeholder="kullanici_adi" autocomplete="username" required />
+      </div>
+      <div class="field">
+        <label>Şifre</label>
+        <div class="pass-wrap">
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" required />
+          <button type="button" class="pass-toggle" id="passToggle">👁</button>
+        </div>
+      </div>
+      <div class="login-error" id="loginError"></div>
+      <button type="submit" class="btn-login" id="loginBtn">Giriş Yap</button>
+    </form>
+  </div>
+  <script>
+    const stored = localStorage.getItem('file_token');
+    if (stored) {
+      fetch('/api/file/check', { headers: { 'x-session-token': stored } })
+        .then(r => { if (r.ok) window.location.href = '/file/app'; })
+        .catch(() => {});
+    }
+    document.getElementById('passToggle').onclick = function() {
+      const inp = document.getElementById('password');
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    };
+    document.getElementById('loginForm').onsubmit = async function(e) {
+      e.preventDefault();
+      const btn = document.getElementById('loginBtn');
+      const err = document.getElementById('loginError');
+      btn.textContent = 'Giriş yapılıyor...';
+      btn.disabled = true;
+      err.textContent = '';
+      try {
+        const res = await fetch('/api/file/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('username').value.trim(),
+            password: document.getElementById('password').value
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Giriş başarısız.');
+        localStorage.setItem('file_token', data.token);
+        window.location.href = '/file/app';
+      } catch (ex) {
+        err.textContent = ex.message;
+        btn.textContent = 'Giriş Yap';
+        btn.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>
